@@ -65,6 +65,12 @@ export abstract class BaseAgent<T extends z.ZodType, M = unknown> {
     return output;
   }
 
+  setChatModel(model: ChatModel): void {
+    this.chatLLM = model;
+    this.provider = model.provider;
+    this.modelName = model.modelName;
+  }
+
   // Execute the agent and return the result
   abstract execute(): Promise<AgentOutput<M>>;
 }

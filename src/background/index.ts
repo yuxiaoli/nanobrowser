@@ -105,6 +105,7 @@ chrome.runtime.onConnect.addListener(port => {
             if (!message.tabId) return port.postMessage({ type: 'error', error: t('bg_errors_noTabId') });
 
             logger.info('new_task', message.tabId, message.task);
+            await currentExecutor?.cancel();
             currentExecutor = await setupExecutor(message.taskId, message.task, browserContext);
             subscribeToExecutorEvents(currentExecutor);
 
@@ -328,6 +329,16 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
 
   const generalSettings = await generalSettingsStore.getSettings();
   const jevSettings = await jevSettingsStore.getSettings();
+  const routingModels: { fast?: ChatModel; capable?: ChatModel } = {};
+  if (jevSettings.enabled && jevSettings.routingEnabled) {
+    for (const route of ['fast', 'capable'] as const) {
+      const model = route === 'fast' ? jevSettings.fastModel : jevSettings.capableModel;
+      if (!model) continue;
+      const provider = providers[model.provider];
+      if (!provider) throw new Error(t('bg_setup_noProvider', [model.provider]));
+      routingModels[route] = createChatModel(provider, model);
+    }
+  }
   browserContext.updateConfig({
     minimumWaitPageLoadTime: generalSettings.minWaitPageLoad / 1000.0,
     displayHighlights: generalSettings.displayHighlights,
@@ -347,6 +358,7 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
     jevSettings,
     decisionEngine: createDecisionEngine(jevSettings),
     decisionNotify: message => currentPort?.postMessage(message),
+    routingModels,
   });
 
   return executor;
@@ -359,6 +371,7 @@ async function subscribeToExecutorEvents(executor: Executor) {
 
   // Subscribe to new events
   executor.subscribeExecutionEvents(async event => {
+    if (currentExecutor !== executor) return;
     try {
       if (currentPort) {
         currentPort.postMessage(event);
@@ -372,7 +385,7 @@ async function subscribeToExecutorEvents(executor: Executor) {
       event.state === ExecutionState.TASK_FAIL ||
       event.state === ExecutionState.TASK_CANCEL
     ) {
-      await currentExecutor?.cleanup();
+      await executor.cleanup();
     }
   });
 }

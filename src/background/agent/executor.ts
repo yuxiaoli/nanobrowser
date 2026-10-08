@@ -25,7 +25,9 @@ import { chatHistoryStore } from '@extension/storage/lib/chat';
 import type { AgentStepHistory } from './history';
 import type { GeneralSettingsConfig, JevSettingsConfig } from '@extension/storage';
 import { analytics } from '../services/analytics';
-import type { DecisionEngine } from './decision/types';
+import type { DecisionEngine, RoutingDecision } from './decision/types';
+import { userMessage } from '../llm/messages';
+import { sanitizeDecisionText } from './decision/policy';
 import { DecisionRuntime, type DecisionNotification } from './decision-runtime';
 
 const logger = createLogger('Executor');
@@ -38,6 +40,7 @@ export interface ExecutorExtraArgs {
   decisionEngine?: DecisionEngine;
   jevSettings?: JevSettingsConfig;
   decisionNotify?: (message: DecisionNotification) => void;
+  routingModels?: { fast?: ChatModel; capable?: ChatModel };
 }
 
 export class Executor {
@@ -48,6 +51,12 @@ export class Executor {
   private readonly navigatorPrompt: NavigatorPrompt;
   private readonly generalSettings: GeneralSettingsConfig | undefined;
   private tasks: string[] = [];
+  private readonly routingModels?: ExecutorExtraArgs['routingModels'];
+  private readonly jevSettings?: JevSettingsConfig;
+  private readonly defaultNavigatorLLM: ChatModel;
+  private routeDecision?: RoutingDecision;
+  private routingInitialized = false;
+  private forcePlanner = false;
   constructor(
     task: string,
     taskId: string,
@@ -69,6 +78,9 @@ export class Executor {
     );
 
     this.generalSettings = extraArgs?.generalSettings;
+    this.jevSettings = extraArgs?.jevSettings;
+    this.routingModels = extraArgs?.routingModels;
+    this.defaultNavigatorLLM = navigatorLLM;
     this.tasks.push(task);
     this.navigatorPrompt = new NavigatorPrompt(context.options.maxActionsPerStep);
     this.plannerPrompt = new PlannerPrompt();
@@ -114,6 +126,9 @@ export class Executor {
   addFollowUpTask(task: string): void {
     this.tasks.push(task);
     this.context.decision?.setTask(this.tasks.join('\n'));
+    this.routeDecision = undefined;
+    this.routingInitialized = false;
+    this.navigator.setChatModel(this.defaultNavigatorLLM);
     this.context.messageManager.addNewTask(task);
 
     // need to reset previous action results that are not included in memory
@@ -168,8 +183,14 @@ export class Executor {
           break;
         }
 
+        if (!this.routingInitialized && !(await this.initializeRouting())) continue;
+
         // Run planner periodically for guidance
-        if (this.planner && (context.nSteps % context.options.planningInterval === 0 || navigatorDone)) {
+        if (
+          this.planner &&
+          (this.forcePlanner || context.nSteps % context.options.planningInterval === 0 || navigatorDone)
+        ) {
+          this.forcePlanner = false;
           navigatorDone = false;
           latestPlanOutput = await this.runPlanner();
           if (context.stopped) break;
@@ -245,6 +266,41 @@ export class Executor {
     }
   }
 
+  private async initializeRouting(): Promise<boolean> {
+    const decision = this.context.decision;
+    if (!decision?.enabled || !this.jevSettings?.routingEnabled) {
+      this.routingInitialized = true;
+      return true;
+    }
+    if (!this.routeDecision) {
+      const taskVersion = this.tasks.length;
+      const route = await decision.invoke(() => decision.engine.routeTask(decision.taskInput()));
+      if (this.context.stopped || this.context.controller.signal.aborted)
+        throw new RequestCancelledError('Task routing cancelled');
+      if (this.tasks.length !== taskVersion) return false;
+      this.routeDecision = route;
+      decision.record('routing', this.routeDecision);
+    }
+    const route = this.routeDecision.outcome;
+    if (route === 'confirm') {
+      const state = await this.context.browserContext.getState(false);
+      if (!(await decision.confirm('task_execution', state, sanitizeDecisionText(this.tasks.at(-1) ?? ''))))
+        return false;
+      this.forcePlanner = true;
+    }
+    const model =
+      route === 'fast' ? this.routingModels?.fast : route === 'capable' ? this.routingModels?.capable : undefined;
+    if (model) this.navigator.setChatModel(model);
+    if (route === 'planner') this.forcePlanner = true;
+    this.context.messageManager.addMessageWithTokens(
+      userMessage(
+        `Execution strategy: ${route}. Preserve all existing security rules and user authorization boundaries.`,
+      ),
+    );
+    this.routingInitialized = true;
+    return true;
+  }
+
   /**
    * Helper method to run planner and store its output
    */
@@ -312,13 +368,16 @@ export class Executor {
       }
       context.nSteps++;
       if (navOutput.error) {
+        this.escalateNavigation();
         throw new Error(navOutput.error);
       }
       context.consecutiveFailures = 0;
+      if (context.actionResults.some(result => result.decisionBlocked || result.error)) this.escalateNavigation();
       if (navOutput.result?.done) {
         return true;
       }
     } catch (error) {
+      this.escalateNavigation();
       logger.error(`Failed to execute step: ${error}`);
       if (
         error instanceof ChatModelAuthError ||
@@ -337,6 +396,12 @@ export class Executor {
       }
     }
     return false;
+  }
+
+  private escalateNavigation(): void {
+    if (!this.context.decision?.enabled || !this.jevSettings?.routingEnabled) return;
+    if (this.routingModels?.capable) this.navigator.setChatModel(this.routingModels.capable);
+    this.forcePlanner = true;
   }
 
   private async shouldStop(): Promise<boolean> {
@@ -361,7 +426,8 @@ export class Executor {
   }
 
   async cancel(): Promise<void> {
-    this.context.stop();
+    await this.context.stop();
+    if (this.context.decision?.enabled) this.context.controller.abort();
   }
 
   async resume(): Promise<void> {

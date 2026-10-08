@@ -124,6 +124,10 @@ export class DecisionRuntime {
     };
   }
 
+  taskInput(): DecisionContext {
+    return { taskId: this.context.taskId, task: this.task, signal: this.context.controller.signal };
+  }
+
   /** Adapt API errors to the existing Executor's fatal/configuration and retry behavior. */
   async invoke<T>(call: () => Promise<T>): Promise<T> {
     try {
