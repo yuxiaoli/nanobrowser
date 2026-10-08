@@ -1,0 +1,100 @@
+name: Jev validation and packaging
+
+on:
+  push:
+    branches: [develop]
+    tags: ['jev-v*']
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jev-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.34.6
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm type-check
+      - name: Lint without editing source
+        run: pnpm exec eslint . --ext .ts,.tsx
+      - name: Offline decision fixtures
+        run: pnpm exec tsx scripts/evaluate-jev.ts
+      - run: pnpm build
+      - run: pnpm zip
+      - name: Validate and prepare installable package
+        shell: bash
+        run: |
+          node --input-type=module -e "import fs from 'node:fs'; const m = JSON.parse(fs.readFileSync('dist/manifest.json', 'utf8')); if (m.manifest_version !== 3 || !m.background?.service_worker) throw new Error('Invalid MV3 manifest'); for (const file of [m.background.service_worker, ...Object.values(m.icons ?? {})]) if (!fs.existsSync('dist/' + file)) throw new Error('Missing packaged entry: ' + file);"
+          zipfile=$(find dist-zip -maxdepth 1 -name '*.zip' -print -quit)
+          test -n "$zipfile"
+          unzip -t "$zipfile"
+          mkdir -p release-artifacts
+          cp "$zipfile" release-artifacts/nanobrowser-jev.zip
+          cp dist-zip/jev-evaluation.json release-artifacts/
+          cp docs/evaluation/jev-fixtures.json release-artifacts/
+          cp docs/jev-evaluation.md release-artifacts/
+          cp docs/jev.md release-artifacts/
+          (cd release-artifacts && sha256sum nanobrowser-jev.zip jev-evaluation.json jev-fixtures.json jev-evaluation.md jev.md > SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nanobrowser-jev-${{ github.sha }}
+          path: release-artifacts/
+          if-no-files-found: error
+
+  prerelease:
+    if: startsWith(github.ref, 'refs/tags/jev-v') && github.repository == 'yuxiaoli/nanobrowser'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: nanobrowser-jev-${{ github.sha }}
+          path: release-artifacts
+      - name: Publish installable prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          case "$RELEASE_TAG" in
+            jev-v0.2.1-*) phase="Phase 1 MVP: action evaluation and completion verification. Routing and experimental settings are dormant in this package." ;;
+            jev-v0.2.2-*) phase="Phase 2: action evaluation, completion verification, and model routing. Experimental selection is dormant in this package." ;;
+            *) phase="Phase 3: action evaluation, completion verification, model routing, and optional experimental candidate selection." ;;
+          esac
+          printf '%s\n\n' "$phase" > release-notes.md
+          cat >> release-notes.md <<'EOF'
+
+          Install: extract nanobrowser-jev.zip, then select its manifest.json directory using Load unpacked in chrome://extensions/.
+
+          Jev is off by default. Configure your own LLM providers and TypeSafe key in Settings > Jev. This direct-call prerelease uses Chrome local storage for credentials and sends redacted task/page evidence to TypeSafe when enabled.
+
+          Validation uses mocked TypeSafe responses. Live TypeSafe connectivity, live task success, and paired performance/cost improvements have not been verified. See the attached evaluation methodology and report.
+          EOF
+          if gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-artifacts/* --repo "$RELEASE_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" release-artifacts/* --repo "$RELEASE_REPOSITORY" --verify-tag --prerelease --title "Nanobrowser Jev $RELEASE_TAG" --notes-file release-notes.md
+          fi

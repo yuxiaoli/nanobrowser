@@ -6,6 +6,7 @@ import {
   generalSettingsStore,
   llmProviderStore,
   analyticsSettingsStore,
+  jevSettingsStore,
 } from '@extension/storage';
 import { t } from '@extension/i18n';
 import BrowserContext from './browser/context';
@@ -18,6 +19,7 @@ import { DEFAULT_AGENT_OPTIONS } from './agent/types';
 import { SpeechToTextService } from './services/speechToText';
 import { injectBuildDomTreeScripts } from './browser/dom/service';
 import { analytics } from './services/analytics';
+import { createDecisionEngine } from './agent/decision/engine';
 
 const logger = createLogger('background');
 
@@ -135,6 +137,14 @@ chrome.runtime.onConnect.addListener(port => {
           case 'cancel_task': {
             if (!currentExecutor) return port.postMessage({ type: 'error', error: t('bg_errors_noRunningTask') });
             await currentExecutor.cancel();
+            break;
+          }
+
+          case 'jev_confirm_action': {
+            const accepted =
+              typeof message.approved === 'boolean' &&
+              currentExecutor?.confirmDecision(message.taskId, message.decisionId, message.approved);
+            if (!accepted) port.postMessage({ type: 'error', error: 'The decision is no longer pending.' });
             break;
           }
 
@@ -317,6 +327,7 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
   }
 
   const generalSettings = await generalSettingsStore.getSettings();
+  const jevSettings = await jevSettingsStore.getSettings();
   browserContext.updateConfig({
     minimumWaitPageLoadTime: generalSettings.minWaitPageLoad / 1000.0,
     displayHighlights: generalSettings.displayHighlights,
@@ -333,6 +344,9 @@ async function setupExecutor(taskId: string, task: string, browserContext: Brows
       planningInterval: generalSettings.planningInterval,
     },
     generalSettings: generalSettings,
+    jevSettings,
+    decisionEngine: createDecisionEngine(jevSettings),
+    decisionNotify: message => currentPort?.postMessage(message),
   });
 
   return executor;

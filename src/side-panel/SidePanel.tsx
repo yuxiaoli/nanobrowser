@@ -11,6 +11,8 @@ import MessageList from './components/MessageList';
 import ChatInput from './components/ChatInput';
 import ChatHistoryList from './components/ChatHistoryList';
 import BookmarkList from './components/BookmarkList';
+import { JevConfirmation } from './components/JevConfirmation';
+import { readJevConfirmation, type JevConfirmationRequest } from './types/confirmation';
 import { EventType, type AgentEvent, ExecutionState } from './types/event';
 import './SidePanel.css';
 
@@ -38,6 +40,8 @@ const SidePanel = () => {
   const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
   const [isReplaying, setIsReplaying] = useState(false);
   const [replayEnabled, setReplayEnabled] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] = useState<JevConfirmationRequest | null>(null);
+  const [isTaskPaused, setIsTaskPaused] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const isReplayingRef = useRef<boolean>(false);
   const portRef = useRef<chrome.runtime.Port | null>(null);
@@ -158,16 +162,22 @@ const SidePanel = () => {
         case Actors.SYSTEM:
           switch (state) {
             case ExecutionState.TASK_START:
+              setPendingConfirmation(null);
+              setIsTaskPaused(false);
               // Reset historical session flag when a new task starts
               setIsHistoricalSession(false);
               break;
             case ExecutionState.TASK_OK:
+              setPendingConfirmation(null);
+              setIsTaskPaused(false);
               setIsFollowUpMode(true);
               setInputEnabled(true);
               setShowStopButton(false);
               setIsReplaying(false);
               break;
             case ExecutionState.TASK_FAIL:
+              setPendingConfirmation(null);
+              setIsTaskPaused(false);
               setIsFollowUpMode(true);
               setInputEnabled(true);
               setShowStopButton(false);
@@ -175,6 +185,8 @@ const SidePanel = () => {
               skip = false;
               break;
             case ExecutionState.TASK_CANCEL:
+              setPendingConfirmation(null);
+              setIsTaskPaused(false);
               setIsFollowUpMode(false);
               setInputEnabled(true);
               setShowStopButton(false);
@@ -182,8 +194,10 @@ const SidePanel = () => {
               skip = false;
               break;
             case ExecutionState.TASK_PAUSE:
+              setIsTaskPaused(true);
               break;
             case ExecutionState.TASK_RESUME:
+              setIsTaskPaused(false);
               break;
             default:
               console.error('Invalid task state', state);
@@ -285,6 +299,8 @@ const SidePanel = () => {
 
   // Stop heartbeat and close connection
   const stopConnection = useCallback(() => {
+    setPendingConfirmation(null);
+    setIsTaskPaused(false);
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
       heartbeatIntervalRef.current = null;
@@ -310,7 +326,24 @@ const SidePanel = () => {
         // Add type checking for message
         if (message && message.type === EventType.EXECUTION) {
           handleTaskState(message);
+        } else if (message && message.type === 'jev_confirmation') {
+          const request = readJevConfirmation(message, sessionIdRef.current);
+          if (request) {
+            setPendingConfirmation(request);
+            setInputEnabled(false);
+            setShowStopButton(true);
+          }
+        } else if (message && message.type === 'jev_confirmation_cleared') {
+          setPendingConfirmation(current =>
+            current &&
+            (!message.taskId || message.taskId === current.taskId) &&
+            (!message.decisionId || message.decisionId === current.decisionId)
+              ? null
+              : current,
+          );
         } else if (message && message.type === 'error') {
+          setPendingConfirmation(null);
+          setIsTaskPaused(false);
           // Handle error messages from service worker
           appendMessage({
             actor: Actors.SYSTEM,
@@ -339,6 +372,8 @@ const SidePanel = () => {
       });
 
       portRef.current.onDisconnect.addListener(() => {
+        setPendingConfirmation(null);
+        setIsTaskPaused(false);
         const error = chrome.runtime.lastError;
         console.log('Connection disconnected', error ? `Error: ${error.message}` : '');
         portRef.current = null;
@@ -644,6 +679,8 @@ const SidePanel = () => {
   };
 
   const handleStopTask = async () => {
+    setPendingConfirmation(null);
+    setIsTaskPaused(false);
     try {
       portRef.current?.postMessage({
         type: 'cancel_task',
@@ -662,6 +699,8 @@ const SidePanel = () => {
   };
 
   const handleNewChat = () => {
+    setPendingConfirmation(null);
+    setIsTaskPaused(false);
     // Clear messages and start a new chat
     setMessages([]);
     setCurrentSessionId(null);
@@ -673,6 +712,30 @@ const SidePanel = () => {
 
     // Disconnect any existing connection
     stopConnection();
+  };
+
+  const handleJevConfirmation = (approved: boolean) => {
+    if (!pendingConfirmation) return;
+    try {
+      sendMessage({
+        type: 'jev_confirm_action',
+        taskId: pendingConfirmation.taskId,
+        decisionId: pendingConfirmation.decisionId,
+        approved,
+      });
+      setPendingConfirmation(null);
+    } catch {
+      setPendingConfirmation(null);
+      appendMessage({ actor: Actors.SYSTEM, content: t('chat_jev_confirmationFailed'), timestamp: Date.now() });
+    }
+  };
+
+  const handleResumeTask = () => {
+    try {
+      sendMessage({ type: 'resume_task' });
+    } catch {
+      appendMessage({ actor: Actors.SYSTEM, content: t('chat_jev_resumeFailed'), timestamp: Date.now() });
+    }
   };
 
   const loadChatSessions = useCallback(async () => {
@@ -1123,6 +1186,24 @@ const SidePanel = () => {
             {/* Show normal chat interface when models are configured */}
             {hasConfiguredModels === true && (
               <>
+                {pendingConfirmation && (
+                  <JevConfirmation
+                    request={pendingConfirmation}
+                    onDecide={handleJevConfirmation}
+                    isDarkMode={isDarkMode}
+                  />
+                )}
+                {isTaskPaused && !pendingConfirmation && (
+                  <div role="status" className="m-2 space-y-2 rounded-lg border border-sky-500 p-3">
+                    <p className="text-sm">{t('chat_jev_taskPaused')}</p>
+                    <button
+                      type="button"
+                      onClick={handleResumeTask}
+                      className="rounded-md bg-sky-600 px-3 py-2 text-sm text-white hover:bg-sky-700">
+                      {t('chat_jev_resumeTask')}
+                    </button>
+                  </div>
+                )}
                 {messages.length === 0 && (
                   <>
                     <div
@@ -1133,7 +1214,7 @@ const SidePanel = () => {
                         onMicClick={handleMicClick}
                         isRecording={isRecording}
                         isProcessingSpeech={isProcessingSpeech}
-                        disabled={!inputEnabled || isHistoricalSession}
+                        disabled={!inputEnabled || isHistoricalSession || pendingConfirmation !== null}
                         showStopButton={showStopButton}
                         setContent={setter => {
                           setInputTextRef.current = setter;
@@ -1171,7 +1252,7 @@ const SidePanel = () => {
                       onMicClick={handleMicClick}
                       isRecording={isRecording}
                       isProcessingSpeech={isProcessingSpeech}
-                      disabled={!inputEnabled || isHistoricalSession}
+                      disabled={!inputEnabled || isHistoricalSession || pendingConfirmation !== null}
                       showStopButton={showStopButton}
                       setContent={setter => {
                         setInputTextRef.current = setter;

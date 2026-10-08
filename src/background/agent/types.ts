@@ -6,6 +6,7 @@ import type MessageManager from './messages/service';
 import type { EventManager } from './event/manager';
 import { type Actors, type ExecutionState, AgentEvent } from './event/types';
 import { AgentStepHistory } from './history';
+import type { DecisionRuntime } from './decision-runtime';
 
 export interface AgentOptions {
   maxSteps: number;
@@ -49,6 +50,7 @@ export class AgentContext {
   stateMessageAdded: boolean;
   history: AgentStepHistory;
   finalAnswer: string | null;
+  decision?: DecisionRuntime;
 
   constructor(
     taskId: string,
@@ -110,6 +112,7 @@ export class AgentStepInfo {
 }
 
 export class ActionResult {
+  decisionBlocked: boolean;
   isDone: boolean;
   success: boolean;
   extractedContent: string | null;
@@ -118,6 +121,7 @@ export class ActionResult {
   interactedElement: DOMHistoryElement | null;
 
   constructor(params: Partial<ActionResult> = {}) {
+    this.decisionBlocked = params.decisionBlocked ?? false;
     this.isDone = params.isDone ?? false;
     this.success = params.success ?? false;
     this.interactedElement = params.interactedElement ?? null;

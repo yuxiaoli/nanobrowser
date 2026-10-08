@@ -30,6 +30,7 @@ import { type NavigatorOutput, validateNavigatorOutput } from './navigatorOutput
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { AgentStepRecord } from '../history';
 import { type DOMHistoryElement } from '@src/background/browser/dom/history/view';
+import { DecisionRuntimeError } from '../decision-runtime';
 
 const logger = createLogger('NavigatorAgent');
 
@@ -174,6 +175,13 @@ export class NavigatorAgent extends BaseAgent<z.ZodType<NavigatorOutput>, Naviga
       return agentOutput;
     } catch (error) {
       this.removeLastStateMessageFromMemory();
+      if (
+        error instanceof ChatModelAuthError ||
+        error instanceof ChatModelBadRequestError ||
+        error instanceof ChatModelForbiddenError ||
+        error instanceof RequestCancelledError
+      )
+        throw error;
       const errorMessage = error instanceof Error ? error.message : String(error);
       // Check if this is an authentication error
       if (isAuthenticationError(error)) {
@@ -211,6 +219,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType<NavigatorOutput>, Naviga
             error: result.error,
             includeInMemory: result.includeInMemory,
             interactedElement: result.interactedElement,
+            decisionBlocked: result.decisionBlocked,
           });
         });
 
@@ -283,7 +292,10 @@ export class NavigatorAgent extends BaseAgent<z.ZodType<NavigatorOutput>, Naviga
   private async doMultiAction(actions: Record<string, unknown>[]): Promise<ActionResult[]> {
     const results: ActionResult[] = [];
     let errCount = 0;
-    logger.info('Actions', actions);
+    logger.info(
+      'Action names',
+      actions.map(action => Object.keys(action)[0]),
+    );
 
     const browserContext = this.context.browserContext;
     const browserState = await browserContext.getState(this.context.options.useVision);
@@ -297,6 +309,14 @@ export class NavigatorAgent extends BaseAgent<z.ZodType<NavigatorOutput>, Naviga
       try {
         // check if the task is paused or stopped
         if (this.context.paused || this.context.stopped) {
+          if (this.context.paused && this.context.decision?.enabled)
+            results.push(
+              new ActionResult({
+                decisionBlocked: true,
+                includeInMemory: true,
+                extractedContent: 'Action batch was paused before execution.',
+              }),
+            );
           return results;
         }
 
@@ -323,6 +343,37 @@ export class NavigatorAgent extends BaseAgent<z.ZodType<NavigatorOutput>, Naviga
           }
         }
 
+        if (this.context.decision?.enabled) {
+          const parsed = actionInstance.schema.schema.safeParse(actionArgs);
+          if (!parsed.success) throw new Error('Invalid action parameters');
+          const parameters = parsed.data as Record<string, unknown>;
+          const freshState = await browserContext.getState(false);
+          if (actionName === 'done') {
+            const completion = await this.context.decision.verify(parameters, freshState);
+            if (completion.outcome !== 'complete' || completion.isHandoff) {
+              results.push(
+                new ActionResult({
+                  extractedContent: `Jev completion: ${completion.reasonCode}. Continue only if more work is needed; ask the user when evidence is unavailable.`,
+                  includeInMemory: true,
+                  decisionBlocked: true,
+                }),
+              );
+              break;
+            }
+          } else if (!(await this.context.decision.approve({ name: actionName, parameters }, freshState))) {
+            results.push(
+              new ActionResult({
+                extractedContent:
+                  'Jev requested a new action, the user rejected it, or its browser state expired. Reconsider the next action using the current evidence.',
+                includeInMemory: true,
+                decisionBlocked: true,
+              }),
+            );
+            break;
+          }
+          if (this.context.stopped || this.context.paused) return results;
+        }
+
         const result = await actionInstance.call(actionArgs);
         if (result === undefined) {
           throw new Error(`Action ${actionName} returned undefined`);
@@ -334,29 +385,40 @@ export class NavigatorAgent extends BaseAgent<z.ZodType<NavigatorOutput>, Naviga
           if (domElement) {
             const interactedElement = HistoryTreeProcessor.convertDomElementToHistoryElement(domElement);
             result.interactedElement = interactedElement;
-            logger.info('Interacted element', interactedElement);
-            logger.info('Result', result);
+            logger.info('Interacted element index', indexArg);
+            logger.info('Result status', { isDone: result.isDone, hasError: !!result.error });
           }
         }
         results.push(result);
+        if (this.context.decision?.enabled) this.context.decision.recordExecution(result);
 
         // check if the task is paused or stopped
         if (this.context.paused || this.context.stopped) {
+          if (this.context.paused && this.context.decision?.enabled)
+            results.push(
+              new ActionResult({
+                decisionBlocked: true,
+                includeInMemory: true,
+                extractedContent: 'Action batch was paused after execution.',
+              }),
+            );
           return results;
         }
         // TODO: wait for 1 second for now, need to optimize this to avoid unnecessary waiting
         await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (error) {
-        if (error instanceof URLNotAllowedError) {
+        if (
+          error instanceof URLNotAllowedError ||
+          error instanceof DecisionRuntimeError ||
+          error instanceof ChatModelAuthError ||
+          error instanceof ChatModelBadRequestError ||
+          error instanceof ChatModelForbiddenError ||
+          error instanceof RequestCancelledError
+        ) {
           throw error;
         }
         const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error(
-          'doAction error',
-          actionName,
-          JSON.stringify(actionArgs, null, 2),
-          JSON.stringify(errorMessage, null, 2),
-        );
+        logger.error('doAction error', actionName, JSON.stringify(errorMessage, null, 2));
         // unexpected error, emit event
         this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.ACT_FAIL, errorMessage);
         errCount++;
@@ -454,7 +516,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType<NavigatorOutput>, Naviga
       }
     }
 
-    logger.debug('updatedActions', updatedActions);
+    logger.debug('Updated action count', updatedActions.length);
 
     // Filter out null values and cast to the expected type
     const validActions = updatedActions.filter((action): action is Record<string, unknown> => action !== null);
@@ -497,7 +559,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType<NavigatorOutput>, Naviga
 
     const { parsedOutput, goal, actionsToReplay } = parsedData;
     replayLogger.info(`Replaying step ${stepIndex + 1}/${totalSteps}: goal: ${goal}`);
-    replayLogger.debug(`🔄 Replaying actions:`, actionsToReplay);
+    replayLogger.debug('Replaying action count', actionsToReplay?.length ?? 0);
 
     // Try to execute the step with retries
     let retryCount = 0;
@@ -514,8 +576,18 @@ export class NavigatorAgent extends BaseAgent<z.ZodType<NavigatorOutput>, Naviga
         // Execute the history actions
         const stepResults = await this.executeHistoryActions(parsedOutput, historyItem, delay);
         results.push(...stepResults);
+        if (stepResults.some(result => result.decisionBlocked)) return results;
         success = true;
       } catch (error) {
+        if (
+          this.context.decision?.enabled &&
+          (error instanceof DecisionRuntimeError ||
+            error instanceof ChatModelAuthError ||
+            error instanceof ChatModelBadRequestError ||
+            error instanceof ChatModelForbiddenError ||
+            error instanceof RequestCancelledError)
+        )
+          throw error;
         retryCount++;
         const errorMessage = error instanceof Error ? error.message : String(error);
 

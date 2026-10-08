@@ -23,8 +23,10 @@ import {
 import { URLNotAllowedError } from '../browser/views';
 import { chatHistoryStore } from '@extension/storage/lib/chat';
 import type { AgentStepHistory } from './history';
-import type { GeneralSettingsConfig } from '@extension/storage';
+import type { GeneralSettingsConfig, JevSettingsConfig } from '@extension/storage';
 import { analytics } from '../services/analytics';
+import type { DecisionEngine } from './decision/types';
+import { DecisionRuntime, type DecisionNotification } from './decision-runtime';
 
 const logger = createLogger('Executor');
 
@@ -33,6 +35,9 @@ export interface ExecutorExtraArgs {
   extractorLLM?: ChatModel;
   agentOptions?: Partial<AgentOptions>;
   generalSettings?: GeneralSettingsConfig;
+  decisionEngine?: DecisionEngine;
+  jevSettings?: JevSettingsConfig;
+  decisionNotify?: (message: DecisionNotification) => void;
 }
 
 export class Executor {
@@ -85,6 +90,14 @@ export class Executor {
     });
 
     this.context = context;
+    if (extraArgs?.decisionEngine)
+      context.decision = new DecisionRuntime(
+        extraArgs.decisionEngine,
+        extraArgs.jevSettings?.enabled ?? false,
+        task,
+        context,
+        extraArgs.decisionNotify,
+      );
     // Initialize message history
     this.context.messageManager.initTaskMessages(this.navigatorPrompt.getSystemMessage(), task);
   }
@@ -100,6 +113,7 @@ export class Executor {
 
   addFollowUpTask(task: string): void {
     this.tasks.push(task);
+    this.context.decision?.setTask(this.tasks.join('\n'));
     this.context.messageManager.addNewTask(task);
 
     // need to reset previous action results that are not included in memory
@@ -110,6 +124,7 @@ export class Executor {
    * Check if task is complete based on planner output and handle completion
    */
   private checkTaskCompletion(planOutput: AgentOutput<PlannerOutput> | null): boolean {
+    if (this.context.stopped || this.context.paused) return false;
     if (planOutput?.result?.done) {
       logger.info('✅ Planner confirms task completion');
       if (planOutput.result.final_answer) {
@@ -157,6 +172,7 @@ export class Executor {
         if (this.planner && (context.nSteps % context.options.planningInterval === 0 || navigatorDone)) {
           navigatorDone = false;
           latestPlanOutput = await this.runPlanner();
+          if (context.stopped) break;
 
           // Check if task is complete after planner run
           if (this.checkTaskCompletion(latestPlanOutput)) {
@@ -174,7 +190,7 @@ export class Executor {
       }
 
       // Determine task completion status
-      const isCompleted = latestPlanOutput?.result?.done === true;
+      const isCompleted = latestPlanOutput?.result?.done === true && !context.stopped && !context.paused;
 
       if (isCompleted) {
         // Emit final answer if available, otherwise use task ID
@@ -246,6 +262,16 @@ export class Executor {
 
       // Execute planner
       const planOutput = await this.planner.execute();
+      if (planOutput.result?.done && context.decision?.enabled) {
+        const completion = await context.decision.verify({
+          text: planOutput.result.final_answer,
+          observation: planOutput.result.observation,
+        });
+        if (completion.outcome !== 'complete' || completion.isHandoff) {
+          planOutput.result.done = false;
+          planOutput.result.next_steps = `Jev completion: ${completion.reasonCode}. ${planOutput.result.next_steps}`;
+        }
+      }
       if (planOutput.result) {
         this.context.messageManager.addPlan(JSON.stringify(planOutput.result), positionForPlan);
       }
@@ -339,7 +365,13 @@ export class Executor {
   }
 
   async resume(): Promise<void> {
-    this.context.resume();
+    if (this.context.decision?.awaitingConfirmation) return;
+    await this.context.resume();
+    await this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_RESUME, t('chat_jev_resumeTask'));
+  }
+
+  confirmDecision(taskId: string, decisionId: string, approved: boolean): boolean {
+    return this.context.decision?.resolveConfirmation(taskId, decisionId, approved) ?? false;
   }
 
   async pause(): Promise<void> {
@@ -395,7 +427,7 @@ export class Executor {
         const historyItem = history.history[i];
 
         // Check if execution should stop
-        if (this.context.stopped) {
+        if (await this.shouldStop()) {
           replayLogger.info('Replay stopped by user');
           break;
         }
@@ -411,6 +443,12 @@ export class Executor {
         );
 
         results.push(...stepResults);
+        if (stepResults.some(result => result.decisionBlocked)) {
+          await this.context.decision?.pauseForUser(
+            'Replay was interrupted by a decision. Review the current state before starting a new task.',
+          );
+          return results;
+        }
 
         // If stopped during execution, break the loop
         if (this.context.stopped) {
@@ -418,12 +456,29 @@ export class Executor {
         }
       }
 
+      if (!this.context.stopped && this.context.decision?.enabled) {
+        const completion = await this.context.decision.verify({
+          text: 'Historical actions have been replayed. Verify the original user task from the resulting state.',
+        });
+        if (completion.outcome !== 'complete' || completion.isHandoff) {
+          this.context.emitEvent(
+            Actors.SYSTEM,
+            ExecutionState.TASK_PAUSE,
+            'Replay finished, but task completion is unverified.',
+          );
+          return results;
+        }
+      }
       if (this.context.stopped) {
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_replay_cancel'));
       } else {
         this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_OK, t('exec_replay_ok'));
       }
     } catch (error) {
+      if (error instanceof RequestCancelledError) {
+        this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_CANCEL, t('exec_replay_cancel'));
+        return results;
+      }
       const errorMessage = error instanceof Error ? error.message : String(error);
       replayLogger.error(`Replay failed: ${errorMessage}`);
       this.context.emitEvent(Actors.SYSTEM, ExecutionState.TASK_FAIL, t('exec_replay_fail', [errorMessage]));

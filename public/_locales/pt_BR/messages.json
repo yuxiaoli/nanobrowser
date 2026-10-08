@@ -960,5 +960,104 @@
         "example": "Opção não encontrada"
       }
     }
+  },
+  "options_tabs_jev": {
+    "message": "Jev"
+  },
+  "options_jev_header": {
+    "message": "Jev decision layer"
+  },
+  "options_jev_description": {
+    "message": "Evaluate proposed actions and task completion while your existing LLM agents keep planning and generating content."
+  },
+  "options_jev_enabled": {
+    "message": "Enable Jev"
+  },
+  "options_jev_privacy": {
+    "message": "Requests go directly to TypeSafe and may include your task and redacted, relevant page text. Your API key is stored locally in Chrome, following the existing provider settings; this storage is not encrypted."
+  },
+  "options_jev_apiKey": {
+    "message": "TypeSafe API key"
+  },
+  "options_jev_model": {
+    "message": "Jev model"
+  },
+  "options_jev_apiDocs": {
+    "message": "Official API documentation"
+  },
+  "options_jev_timeout": {
+    "message": "Total decision timeout (ms)"
+  },
+  "options_jev_proceedThreshold": {
+    "message": "Proceed confidence"
+  },
+  "options_jev_completionThreshold": {
+    "message": "Completion confidence"
+  },
+  "options_jev_selectionThreshold": {
+    "message": "Experimental selection confidence"
+  },
+  "options_jev_routing": {
+    "message": "Enable model routing"
+  },
+  "options_jev_routingDescription": {
+    "message": "Choose models already configured in Models. Unset selections keep the current Navigator model. Jev must be enabled for routing and experimental selection."
+  },
+  "options_jev_fastModel": {
+    "message": "Fast model"
+  },
+  "options_jev_capableModel": {
+    "message": "Capable model"
+  },
+  "options_jev_currentModel": {
+    "message": "Use current Navigator model"
+  },
+  "options_jev_reasoningEffort": {
+    "message": "Reasoning effort (when supported)"
+  },
+  "options_jev_providerDefault": {
+    "message": "Provider default"
+  },
+  "options_jev_system1": {
+    "message": "Enable experimental System-1 Navigator"
+  },
+  "options_jev_system1Description": {
+    "message": "Jev selects from bounded browser actions. Text generation, uncertain choices and unavailable candidates fall back to your Navigator."
+  },
+  "options_jev_save": {
+    "message": "Save settings"
+  },
+  "options_jev_saving": {
+    "message": "Saving…"
+  },
+  "options_jev_saved": {
+    "message": "Jev settings saved."
+  },
+  "options_jev_saveError": {
+    "message": "Unable to load or save Jev settings. Check that the model is set, timeout is 1,000–60,000 ms, and confidence values are between 0 and 1."
+  },
+  "chat_jev_confirmationTitle": {
+    "message": "Action approval required"
+  },
+  "chat_jev_confirmationDescription": {
+    "message": "Approve only this proposed action. Approval expires if the page or task changes."
+  },
+  "chat_jev_approve": {
+    "message": "Approve action"
+  },
+  "chat_jev_reject": {
+    "message": "Reject action"
+  },
+  "chat_jev_confirmationFailed": {
+    "message": "The action approval could not be sent. Reconnect or stop the task."
+  },
+  "chat_jev_taskPaused": {
+    "message": "Task paused. Resume lets the Navigator reconsider from the current page using decision feedback."
+  },
+  "chat_jev_resumeTask": {
+    "message": "Resume task"
+  },
+  "chat_jev_resumeFailed": {
+    "message": "The task could not be resumed. Reconnect or stop the task."
   }
 }

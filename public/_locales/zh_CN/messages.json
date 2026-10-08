@@ -262,7 +262,6 @@
   "options_general_replayHistoricalTasks_desc": {
     "message": "Enable storing and replaying of agent step history (experimental, may have issues)"
   },
-
   "options_models_providers_header": {
     "message": "LLM Providers"
   },
@@ -290,7 +289,6 @@
   "options_models_providers_custom_name_placeholder": {
     "message": "Provider name"
   },
-
   "options_models_providers_apiKey": {
     "message": "API Key"
   },
@@ -309,21 +307,18 @@
   "options_models_providers_apiKey_show": {
     "message": "Show API key"
   },
-
   "options_models_selection_header": {
     "message": "Model Selection"
   },
   "options_models_speechToText_header": {
     "message": "Speech-to-Text Model"
   },
-
   "options_models_agents_navigator": {
     "message": "Navigates websites and performs actions"
   },
   "options_models_agents_planner": {
     "message": "Develops and refines strategies to complete tasks"
   },
-
   "options_models_labels_model": {
     "message": "Model"
   },
@@ -405,7 +400,6 @@
       }
     }
   },
-
   "options_firewall_header": {
     "message": "Firewall"
   },
@@ -442,7 +436,6 @@
   "options_firewall_howItWorks": {
     "message": "The firewall contains a deny list and an allow list.\nIf both lists are empty, all URLs are allowed\nDeny list takes priority - if a URL matches any deny list entry, it's blocked\nWhen allow list is empty, all non-denied URLs are allowed\nWhen allow list is not empty, only matching URLs are allowed\nWildcards are NOT supported yet\nAllow list is preferred over deny list"
   },
-
   "bg_errors_noTabId": {
     "message": "No tab ID provided"
   },
@@ -542,7 +535,6 @@
   "exec_replay_historyEmpty": {
     "message": "History is empty"
   },
-
   "act_searchGoogle_start": {
     "message": "Searching for \"$QUERY$\" in Google",
     "placeholders": {
@@ -966,99 +958,99 @@
     "message": "Jev"
   },
   "options_jev_header": {
-    "message": "Jev decision layer"
+    "message": "Jev 决策层"
   },
   "options_jev_description": {
-    "message": "Evaluate proposed actions and task completion while your existing LLM agents keep planning and generating content."
+    "message": "评估待执行动作并验证任务是否完成；现有 LLM 代理继续负责规划和内容生成。"
   },
   "options_jev_enabled": {
-    "message": "Enable Jev"
+    "message": "启用 Jev"
   },
   "options_jev_privacy": {
-    "message": "Requests go directly to TypeSafe and may include your task and redacted, relevant page text. Your API key is stored locally in Chrome, following the existing provider settings; this storage is not encrypted."
+    "message": "请求将直接发送到 TypeSafe，可能包含任务内容和已脱敏的相关页面文本。API 密钥沿用现有提供商设置方式，保存在 Chrome 本地；该存储并未加密。"
   },
   "options_jev_apiKey": {
-    "message": "TypeSafe API key"
+    "message": "TypeSafe API 密钥"
   },
   "options_jev_model": {
-    "message": "Jev model"
+    "message": "Jev 模型"
   },
   "options_jev_apiDocs": {
-    "message": "Official API documentation"
+    "message": "官方 API 文档"
   },
   "options_jev_timeout": {
-    "message": "Total decision timeout (ms)"
+    "message": "单次决策总超时（毫秒）"
   },
   "options_jev_proceedThreshold": {
-    "message": "Proceed confidence"
+    "message": "执行置信度"
   },
   "options_jev_completionThreshold": {
-    "message": "Completion confidence"
+    "message": "完成置信度"
   },
   "options_jev_selectionThreshold": {
-    "message": "Experimental selection confidence"
+    "message": "实验动作选择置信度"
   },
   "options_jev_routing": {
-    "message": "Enable model routing"
+    "message": "启用模型路由"
   },
   "options_jev_routingDescription": {
-    "message": "Choose models already configured in Models. Unset selections keep the current Navigator model. Jev must be enabled for routing and experimental selection."
+    "message": "选择“模型”页中已配置的模型。未选择时沿用当前 Navigator 模型。模型路由和实验动作选择均需启用 Jev。"
   },
   "options_jev_fastModel": {
-    "message": "Fast model"
+    "message": "快速模型"
   },
   "options_jev_capableModel": {
-    "message": "Capable model"
+    "message": "高能力模型"
   },
   "options_jev_currentModel": {
-    "message": "Use current Navigator model"
+    "message": "使用当前 Navigator 模型"
   },
   "options_jev_reasoningEffort": {
-    "message": "Reasoning effort (when supported)"
+    "message": "推理强度（模型支持时）"
   },
   "options_jev_providerDefault": {
-    "message": "Provider default"
+    "message": "提供商默认值"
   },
   "options_jev_system1": {
-    "message": "Enable experimental System-1 Navigator"
+    "message": "启用实验 System-1 Navigator"
   },
   "options_jev_system1Description": {
-    "message": "Jev selects from bounded browser actions. Text generation, uncertain choices and unavailable candidates fall back to your Navigator."
+    "message": "Jev 从有限的浏览器动作中选择。文本生成、不确定选择和无可用候选时回退到原 Navigator。"
   },
   "options_jev_save": {
-    "message": "Save settings"
+    "message": "保存设置"
   },
   "options_jev_saving": {
-    "message": "Saving…"
+    "message": "正在保存…"
   },
   "options_jev_saved": {
-    "message": "Jev settings saved."
+    "message": "Jev 设置已保存。"
   },
   "options_jev_saveError": {
-    "message": "Unable to load or save Jev settings. Check that the model is set, timeout is 1,000–60,000 ms, and confidence values are between 0 and 1."
+    "message": "无法读取或保存 Jev 设置。请检查模型名称、1,000–60,000 毫秒的超时以及 0–1 之间的置信度。"
   },
   "chat_jev_confirmationTitle": {
-    "message": "Action approval required"
+    "message": "需要批准动作"
   },
   "chat_jev_confirmationDescription": {
-    "message": "Approve only this proposed action. Approval expires if the page or task changes."
+    "message": "仅批准这一次待执行动作。页面或任务变化后，批准会失效。"
   },
   "chat_jev_approve": {
-    "message": "Approve action"
+    "message": "批准动作"
   },
   "chat_jev_reject": {
-    "message": "Reject action"
+    "message": "拒绝动作"
   },
   "chat_jev_confirmationFailed": {
-    "message": "The action approval could not be sent. Reconnect or stop the task."
+    "message": "无法发送动作批准。请重新连接或停止任务。"
   },
   "chat_jev_taskPaused": {
-    "message": "Task paused. Resume lets the Navigator reconsider from the current page using decision feedback."
+    "message": "任务已暂停。继续任务后，Navigator 将根据决策反馈和当前页面重新考虑下一步。"
   },
   "chat_jev_resumeTask": {
-    "message": "Resume task"
+    "message": "继续任务"
   },
   "chat_jev_resumeFailed": {
-    "message": "The task could not be resumed. Reconnect or stop the task."
+    "message": "无法继续任务。请重新连接或停止任务。"
   }
 }

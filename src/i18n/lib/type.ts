@@ -4,6 +4,7 @@
  */
 import type enMessage from '../../../public/_locales/en/messages.json';
 import type pt_BRMessage from '../../../public/_locales/pt_BR/messages.json';
+import type zh_CNMessage from '../../../public/_locales/zh_CN/messages.json';
 import type zh_TWMessage from '../../../public/_locales/zh_TW/messages.json';
 
-export type MessageKey = keyof typeof enMessage & keyof typeof pt_BRMessage & keyof typeof zh_TWMessage;
+export type MessageKey = keyof typeof enMessage & keyof typeof pt_BRMessage & keyof typeof zh_CNMessage & keyof typeof zh_TWMessage;
