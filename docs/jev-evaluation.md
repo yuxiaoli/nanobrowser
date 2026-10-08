@@ -8,6 +8,12 @@ The baseline is `NoopDecisionEngine` (Jev disabled). The enhanced path is `JevDe
 
 Reports identify transport calls, adapter elapsed time, and observed outcomes. Mock elapsed time is not network or browser latency. Synthetic usage is not billable provider usage. Live task success, incorrect actions, latency, and estimated cost remain `null` until measured. Tests separately exercise malformed replies, failure, cancellation, privacy redaction, timeout, confirmation lifecycle, and executor integration.
 
+## Actual extension checks with mock providers
+
+After building, run `pnpm exec node scripts/verify-extension.mjs --zip=path/to/nanobrowser-jev.zip --all-phases` against a phase-3 ZIP. The script extracts into an isolated directory, records the ZIP hash, loads the real extension in a fresh headless Chrome profile, and exercises its options, service worker, and DOM executor against a local synthetic page. Jev and LLM transports are mocked in memory; external DNS is blocked. It requires a local Chrome executable: the default is the standard Windows installation path; override it with `--browser=/path/to/chrome` or `JEV_TEST_BROWSER`.
+
+For earlier phase packages omit `--all-phases` to run MVP checks. The report defaults to `.git/jev-browser-report.json`; choose `--report=path/to/report.json` to preserve separate runs. A passing browser report establishes the packaged extension's mocked control flow, not live provider connectivity or representative-task accuracy.
+
 ## Online paired protocol (pending authorization)
 
 Use the same 20 task definitions, controlled test pages, fixed initial browser state, provider/model configurations, and maximum step budget. For each task run baseline and enhanced modes in randomized order; repeat each pair at least three times. Start from a fresh session per run. Form interactions must use local or dedicated sandbox pages, never live purchases or messages.
@@ -20,4 +26,6 @@ Estimated cost uses recorded token usage multiplied by prices explicitly supplie
 
 The initial offline adapter run passed **40/40 control checks**: all 20 tasks in English and Chinese. It made **zero external API calls**. The generated JSON report is attached to each prerelease; its per-decision values describe mock transport behavior and synthetic token usage. Later builds regenerate the report rather than relying on this initial count.
 
-Offline report generation and repository validation are part of this prerelease. Live TypeSafe connectivity and paired browser evaluation have not been run. The original full end-to-end acceptance remains outstanding until those runs and extension loading checks are completed.
+The final local phase-3 extension ZIP (`0.2.3`) passed **16/16 actual-browser checks** in an isolated Chrome `154.0.8037.98` profile, with real extension pages, its service worker, and DOM execution. The checks cover settings, disabled-path compatibility, action/completion decisions, reconsideration bounds, approval/rejection/cancellation, stale approval, resume, all four model-routing strategies, and experimental selection/fallback. Jev and LLM transports were mocked, and external DNS was blocked. The [saved browser report](jev-browser-verification.json) identifies the tested ZIP by SHA-256 `cdfddf19c14594ebeec76ecf67b774dff9df8f8897a6fab92ac5143765bea096`; this is a local package digest, separate from the CI-produced release asset digest. See [the release acceptance record](../context/RELEASES.md) for published source and CI identity.
+
+Offline report generation, repository validation, and packaged-extension checks with mocked providers are part of this prerelease. Live TypeSafe connectivity and paired browser evaluation have not been run. The original full live end-to-end acceptance remains outstanding until those online runs are completed.

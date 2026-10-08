@@ -168,6 +168,61 @@ describe('decision runtime execution safeguards', () => {
     expect(action.parameters).toEqual({ index: 1, text: 'not-a-pattern-secret' });
   });
 
+  it('shows a bounded target label in the sanitized confirmation without changing executable parameters', async () => {
+    const { runtime, engine, state, notify } = setup();
+    vi.mocked(engine.evaluateAction).mockResolvedValue(actionDecision('confirm'));
+    const action = { name: 'click_element', parameters: { index: 1 } };
+    const approval = runtime.approve(action, state);
+    await vi.waitFor(() => expect(notify).toHaveBeenCalled());
+    const request = notify.mock.calls[0][0];
+    const summary = JSON.parse(request.summary);
+    expect(summary.target.text).toBe('View result');
+    expect(summary.target.tagName).toBe('button');
+    expect(summary.target).not.toHaveProperty('value');
+    expect(action.parameters).toEqual({ index: 1 });
+    runtime.resolveConfirmation(request.taskId, request.decisionId, true);
+    expect(await approval).toBe(true);
+  });
+
+  it('redacts password-target input and DOM text from confirmation and omits its DOM value', async () => {
+    const { runtime, engine, state, notify } = setup();
+    const target = state.selectorMap.get(1)!;
+    target.tagName = 'input';
+    target.attributes = {
+      type: 'password',
+      name: 'user_password',
+      autocomplete: 'current-password',
+      value: 'private-dom-value',
+    };
+    target.children = [new DOMTextNode('private-dom-text', true)];
+    vi.mocked(engine.evaluateAction).mockResolvedValue(actionDecision('confirm'));
+    const action = { name: 'input_text', parameters: { index: 1, text: 'private-typed-value' } };
+    const approval = runtime.approve(action, state);
+    await vi.waitFor(() => expect(notify).toHaveBeenCalled());
+    const request = notify.mock.calls[0][0];
+    const summary = JSON.parse(request.summary);
+    expect(summary.text).toBe('[REDACTED]');
+    expect(summary.target.text).toBe('[REDACTED]');
+    expect(summary.target).not.toHaveProperty('value');
+    for (const secret of ['private-dom-value', 'private-dom-text', 'private-typed-value']) {
+      expect(request.summary).not.toContain(secret);
+    }
+    expect(action.parameters.text).toBe('private-typed-value');
+    runtime.resolveConfirmation(request.taskId, request.decisionId, true);
+    expect(await approval).toBe(true);
+  });
+
+  it('does not create confirmation for an action evaluated before a task change', async () => {
+    const { runtime, engine, state, notify } = setup();
+    vi.mocked(engine.evaluateAction).mockImplementation(async () => {
+      runtime.setTask('A different goal');
+      return actionDecision('confirm');
+    });
+    expect(await runtime.approve({ name: 'click_element', parameters: { index: 1 } }, state)).toBe(false);
+    expect(notify).not.toHaveBeenCalled();
+    expect(runtime.awaitingConfirmation).toBe(false);
+  });
+
   it('maps authentication to existing fatal errors without leaking underlying messages', async () => {
     const { runtime } = setup();
     await expect(

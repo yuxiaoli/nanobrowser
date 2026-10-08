@@ -38,7 +38,6 @@ jobs:
         run: pnpm exec eslint . --ext .ts,.tsx
       - name: Offline decision fixtures
         run: pnpm exec tsx scripts/evaluate-jev.ts
-      - run: pnpm build
       - run: pnpm zip
       - name: Validate and prepare installable package
         shell: bash
@@ -53,7 +52,19 @@ jobs:
           cp docs/evaluation/jev-fixtures.json release-artifacts/
           cp docs/jev-evaluation.md release-artifacts/
           cp docs/jev.md release-artifacts/
-          (cd release-artifacts && sha256sum nanobrowser-jev.zip jev-evaluation.json jev-fixtures.json jev-evaluation.md jev.md > SHA256SUMS)
+      - name: Verify actual packaged extension with mock providers
+        shell: bash
+        run: |
+          browser=$(command -v google-chrome || command -v chromium || true)
+          if [ -z "$browser" ]; then
+            printf '%s\n' 'No supported Chrome/Chromium executable is installed on this runner.' >&2
+            exit 1
+          fi
+          node scripts/verify-extension.mjs --browser="$browser" --zip=release-artifacts/nanobrowser-jev.zip --all-phases --report=release-artifacts/jev-browser-report.json
+      - name: Checksum verified package and evidence
+        shell: bash
+        run: |
+          (cd release-artifacts && sha256sum nanobrowser-jev.zip jev-evaluation.json jev-fixtures.json jev-evaluation.md jev.md jev-browser-report.json > SHA256SUMS)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: nanobrowser-jev-${{ github.sha }}
@@ -91,7 +102,9 @@ jobs:
 
           Jev is off by default. Configure your own LLM providers and TypeSafe key in Settings > Jev. This direct-call prerelease uses Chrome local storage for credentials and sends redacted task/page evidence to TypeSafe when enabled.
 
-          Validation uses mocked TypeSafe responses. Live TypeSafe connectivity, live task success, and paired performance/cost improvements have not been verified. See the attached evaluation methodology and report.
+          The packaged extension passed browser checks in an isolated Chrome profile with mocked Jev/LLM transports. Its browser report records the tested ZIP hash. Adapter validation also uses mocked TypeSafe responses.
+
+          Live TypeSafe connectivity, live task success, and paired performance/cost improvements have not been verified. See the attached evaluation methodology and reports.
           EOF
           if gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" release-artifacts/* --repo "$RELEASE_REPOSITORY" --clobber

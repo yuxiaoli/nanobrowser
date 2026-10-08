@@ -86,6 +86,10 @@ export class DecisionRuntime {
     return !!this.pending;
   }
 
+  get taskRevision(): number {
+    return this.generation;
+  }
+
   setTask(task: string): void {
     this.generation++;
     this.pending?.resolve(false);
@@ -203,11 +207,22 @@ export class DecisionRuntime {
             type: target.attributes.type,
             name: target.attributes.name,
             autocomplete: target.attributes.autocomplete,
+            target: {
+              tagName: target.tagName,
+              text: filterExternalContent(target.getAllTextTillNextClickableElement()).slice(0, 500),
+              type: target.attributes.type,
+              name: target.attributes.name,
+              autocomplete: target.attributes.autocomplete,
+              title: target.attributes.title,
+              'aria-label': target.attributes['aria-label'],
+              role: target.attributes.role,
+            },
           },
         }
       : action;
     const decision = await this.invoke(() => this.engine.evaluateAction(input, evaluationAction));
     this.record('action', decision);
+    if (generation !== this.generation || this.context.stopped || this.context.paused) return false;
     if (decision.outcome === 'reconsider') {
       this.reconsiderations++;
       if (this.reconsiderations >= 2)
@@ -315,6 +330,7 @@ export function buildDecisionCandidates(state: BrowserState): DecisionCandidate[
   const candidates: DecisionCandidate[] = [];
   for (const [index, element] of state.selectorMap) {
     if (!element.isInteractive || !element.isVisible || !element.isInViewport) continue;
+    if ('disabled' in element.attributes || element.attributes['aria-disabled'] === 'true') continue;
     const label =
       element.getAllTextTillNextClickableElement().slice(0, 160) ||
       element.attributes['aria-label'] ||
@@ -324,12 +340,13 @@ export function buildDecisionCandidates(state: BrowserState): DecisionCandidate[
       for (const child of element.children) {
         if ('tagName' in child && child.tagName === 'option' && 'getAllTextTillNextClickableElement' in child) {
           const text = (child as typeof element).getAllTextTillNextClickableElement();
-          if (text)
+          if (text && !('disabled' in (child as typeof element).attributes))
             candidates.push({
               id: `option_${index}_${candidates.length}`,
               label: `${label}: ${text}`,
               action: { name: 'select_dropdown_option', parameters: { index, text } },
             });
+          if (candidates.length >= 36) break;
         }
       }
     } else if (!['input', 'textarea'].includes(element.tagName?.toLowerCase() ?? '')) {
@@ -337,16 +354,18 @@ export function buildDecisionCandidates(state: BrowserState): DecisionCandidate[
     }
     if (candidates.length >= 36) break;
   }
-  candidates.push({
-    id: 'scroll_next',
-    label: 'Scroll to the next page',
-    action: { name: 'next_page', parameters: {} },
-  });
-  candidates.push({
-    id: 'scroll_previous',
-    label: 'Scroll to the previous page',
-    action: { name: 'previous_page', parameters: {} },
-  });
+  if (state.scrollY + state.visualViewportHeight < state.scrollHeight - 1)
+    candidates.push({
+      id: 'scroll_next',
+      label: 'Scroll to the next page',
+      action: { name: 'next_page', parameters: {} },
+    });
+  if (state.scrollY > 0)
+    candidates.push({
+      id: 'scroll_previous',
+      label: 'Scroll to the previous page',
+      action: { name: 'previous_page', parameters: {} },
+    });
   for (const tab of state.tabs) {
     if (tab.id !== state.tabId && candidates.length < 48)
       candidates.push({

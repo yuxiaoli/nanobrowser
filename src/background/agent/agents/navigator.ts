@@ -30,7 +30,7 @@ import { type NavigatorOutput, validateNavigatorOutput } from './navigatorOutput
 import { HistoryTreeProcessor } from '@src/background/browser/dom/history/service';
 import { AgentStepRecord } from '../history';
 import { type DOMHistoryElement } from '@src/background/browser/dom/history/view';
-import { DecisionRuntimeError } from '../decision-runtime';
+import { DecisionRuntimeError, browserFingerprint, buildDecisionCandidates } from '../decision-runtime';
 
 const logger = createLogger('NavigatorAgent');
 
@@ -87,15 +87,17 @@ export class NavigatorAgent extends BaseAgent<z.ZodType<NavigatorOutput>, Naviga
   private actionRegistry: NavigatorActionRegistry;
   private jsonSchema: JSONSchema7;
   private _stateHistory: BrowserStateHistory | null = null;
+  private readonly system1Enabled: boolean;
 
   constructor(
     actionRegistry: NavigatorActionRegistry,
     options: BaseAgentOptions,
-    extraOptions?: Partial<ExtraAgentOptions>,
+    extraOptions?: Partial<ExtraAgentOptions> & { system1Enabled?: boolean },
   ) {
     super(actionRegistry.setupModelOutputSchema(), options, { ...extraOptions, id: 'navigator' });
 
     this.actionRegistry = actionRegistry;
+    this.system1Enabled = extraOptions?.system1Enabled ?? false;
     // The history records navigator outputs as AgentOutput tool calls; the shared name marks them as its own
     this.structuredToolName = AGENT_OUTPUT_TOOL_NAME;
 
@@ -119,6 +121,7 @@ export class NavigatorAgent extends BaseAgent<z.ZodType<NavigatorOutput>, Naviga
     let modelOutputString: string | null = null;
     let browserStateHistory: BrowserStateHistory | null = null;
     let actionResults: ActionResult[] = [];
+    const taskRevision = this.context.decision?.taskRevision;
 
     try {
       this.context.emitEvent(Actors.NAVIGATOR, ExecutionState.STEP_START, 'Navigating...');
@@ -139,10 +142,15 @@ export class NavigatorAgent extends BaseAgent<z.ZodType<NavigatorOutput>, Naviga
       const inputMessages = messageManager.getMessages();
       // logger.info('Navigator input message', inputMessages[inputMessages.length - 1]);
 
-      const modelOutput = await this.invoke(inputMessages);
+      const selectedOutput = await this.selectBoundedAction(currentState);
+      if (this.context.paused || this.context.stopped || taskRevision !== this.context.decision?.taskRevision) {
+        cancelled = true;
+        return agentOutput;
+      }
+      const modelOutput = selectedOutput ?? (await this.invoke(inputMessages));
 
       // check if the task is paused or stopped
-      if (this.context.paused || this.context.stopped) {
+      if (this.context.paused || this.context.stopped || taskRevision !== this.context.decision?.taskRevision) {
         cancelled = true;
         return agentOutput;
       }
@@ -229,6 +237,39 @@ export class NavigatorAgent extends BaseAgent<z.ZodType<NavigatorOutput>, Naviga
         // logger.info('All history', JSON.stringify(this.context.history, null, 2));
       }
     }
+  }
+
+  private async selectBoundedAction(state: BrowserState): Promise<NavigatorOutput | null> {
+    const decision = this.context.decision;
+    if (!this.system1Enabled || !decision?.enabled) return null;
+    const taskRevision = decision.taskRevision;
+    const fingerprint = await browserFingerprint(state);
+    const candidates = buildDecisionCandidates(state).filter(candidate => {
+      const action = this.actionRegistry.getAction(candidate.action.name);
+      return action?.schema.schema.safeParse(candidate.action.parameters).success;
+    });
+    const input = await decision.input(state);
+    const selection = await decision.invoke(() => decision.engine.selectAction(input, candidates));
+    decision.record('selection', selection);
+    if (
+      selection.outcome !== 'selected' ||
+      this.context.paused ||
+      this.context.stopped ||
+      taskRevision !== decision.taskRevision
+    )
+      return null;
+    const candidate = candidates.find(item => item.id === selection.candidateId);
+    if (!candidate) return null;
+    const fresh = await this.context.browserContext.getState(false);
+    if (taskRevision !== decision.taskRevision || fingerprint !== (await browserFingerprint(fresh))) return null;
+    return {
+      current_state: {
+        evaluation_previous_goal: 'Selected a bounded action using current browser evidence.',
+        memory: '',
+        next_goal: 'Execute the selected bounded action.',
+      },
+      action: [{ [candidate.action.name]: candidate.action.parameters }],
+    };
   }
 
   /**

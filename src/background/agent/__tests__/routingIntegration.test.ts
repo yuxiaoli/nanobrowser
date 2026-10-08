@@ -171,6 +171,28 @@ describe('Executor model routing integration', () => {
     expect(setModel).not.toHaveBeenCalled();
   });
 
+  it('discards a route classified for a task superseded during the API call', async () => {
+    const { executor, internals, route, setModel } = fixture();
+    let resolveRoute: (route: RoutingDecision) => void = () => {};
+    route.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveRoute = resolve;
+        }),
+    );
+    const stale = internals.initializeRouting();
+    await vi.waitFor(() => expect(route).toHaveBeenCalledTimes(1));
+    executor.addFollowUpTask('Compare the result with another page');
+    resolveRoute(routingDecision('fast'));
+    expect(await stale).toBe(false);
+    expect(internals.routingInitialized).toBe(false);
+    expect(setModel).toHaveBeenLastCalledWith(originalModel);
+    route.mockResolvedValueOnce(routingDecision('capable'));
+    expect(await internals.initializeRouting()).toBe(true);
+    expect(route).toHaveBeenCalledTimes(2);
+    expect(setModel).toHaveBeenLastCalledWith(capableModel);
+  });
+
   it.each(['returned_error', 'thrown_error', 'blocked_action'] as const)(
     'escalates %s navigation to capable execution and Planner guidance without reclassifying',
     async failure => {
@@ -272,6 +294,27 @@ describe('Routing confirmation and cancellation', () => {
     await assertion;
     expect(internals.routingInitialized).toBe(false);
     expect(notify.mock.calls.at(-1)?.[0].type).toBe('jev_confirmation_cleared');
+  });
+
+  it('does not approve a superseded task when browser state resolves after a follow-up', async () => {
+    const { executor, internals, browser, notify, route } = fixture('confirm');
+    let resolveState: (state: BrowserState) => void = () => {};
+    vi.mocked(browser.getState).mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveState = resolve;
+        }),
+    );
+    const stale = internals.initializeRouting();
+    await vi.waitFor(() => expect(browser.getState).toHaveBeenCalledTimes(1));
+    executor.addFollowUpTask('Use a different result');
+    resolveState(browserState());
+    expect(await stale).toBe(false);
+    expect(notify).not.toHaveBeenCalled();
+    expect(internals.routingInitialized).toBe(false);
+    route.mockResolvedValueOnce(routingDecision('planner'));
+    expect(await internals.initializeRouting()).toBe(true);
+    expect(route).toHaveBeenCalledTimes(2);
   });
 
   it('does not emit success when cancellation arrives with a Planner completion claim', async () => {

@@ -19,7 +19,7 @@
 
 This fork adds an optional Jev decision layer while retaining Nanobrowser's Planner, Navigator, browser actions, and LLM providers. Jev is disabled by default. Install this fork from [its GitHub prereleases](https://github.com/yuxiaoli/nanobrowser/releases), then follow the [Jev installation and configuration guide](docs/jev.md). The upstream Chrome Web Store version below does not contain these changes.
 
-The prerelease includes action evaluation, completion verification, optional model routing, and experimental bounded action selection. Validation uses mocked API responses; live task success and performance benefits have not been established. See the [evaluation methodology](docs/jev-evaluation.md) and [implementation plan](context/PLAN.md).
+The prerelease includes action evaluation, completion verification, optional model routing, and experimental bounded action selection. The final local package passed 16 actual-browser checks with mocked providers, plus 40 bilingual adapter control checks. Live TypeSafe connectivity, task success, and performance benefits have not been established. See the [evaluation methodology](docs/jev-evaluation.md), [release acceptance record](context/RELEASES.md), and [implementation plan](context/PLAN.md).
 
 Nanobrowser is an open-source AI web automation tool that runs in your browser. A free alternative to OpenAI Operator with flexible LLM options and multi-agent system.
 

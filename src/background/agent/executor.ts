@@ -89,11 +89,15 @@ export class Executor {
     const navigatorActionRegistry = new NavigatorActionRegistry(actionBuilder.buildDefaultActions());
 
     // Initialize agents with their respective prompts
-    this.navigator = new NavigatorAgent(navigatorActionRegistry, {
-      chatLLM: navigatorLLM,
-      context: context,
-      prompt: this.navigatorPrompt,
-    });
+    this.navigator = new NavigatorAgent(
+      navigatorActionRegistry,
+      {
+        chatLLM: navigatorLLM,
+        context: context,
+        prompt: this.navigatorPrompt,
+      },
+      { system1Enabled: extraArgs?.jevSettings?.system1Enabled },
+    );
 
     this.planner = new PlannerAgent({
       chatLLM: plannerLLM,
@@ -267,13 +271,13 @@ export class Executor {
   }
 
   private async initializeRouting(): Promise<boolean> {
+    const taskVersion = this.tasks.length;
     const decision = this.context.decision;
     if (!decision?.enabled || !this.jevSettings?.routingEnabled) {
       this.routingInitialized = true;
       return true;
     }
     if (!this.routeDecision) {
-      const taskVersion = this.tasks.length;
       const route = await decision.invoke(() => decision.engine.routeTask(decision.taskInput()));
       if (this.context.stopped || this.context.controller.signal.aborted)
         throw new RequestCancelledError('Task routing cancelled');
@@ -284,10 +288,14 @@ export class Executor {
     const route = this.routeDecision.outcome;
     if (route === 'confirm') {
       const state = await this.context.browserContext.getState(false);
+      if (this.tasks.length !== taskVersion) return false;
       if (!(await decision.confirm('task_execution', state, sanitizeDecisionText(this.tasks.at(-1) ?? ''))))
         return false;
+      if (this.tasks.length !== taskVersion) return false;
       this.forcePlanner = true;
     }
+    if (this.context.stopped || this.context.controller.signal.aborted)
+      throw new RequestCancelledError('Task routing cancelled');
     const model =
       route === 'fast' ? this.routingModels?.fast : route === 'capable' ? this.routingModels?.capable : undefined;
     if (model) this.navigator.setChatModel(model);
