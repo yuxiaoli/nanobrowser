@@ -26,8 +26,21 @@ This initial browser run used a built phase-1 working-tree snapshot before the f
 - Downloaded published ZIP: manifest `0.2.2`, MV3 worker present; SHA-256 `47471d0a17142cfdd0419af0b9d0f69f2bbe0a9c52c59729dda17940169a1e79` matches GitHub's published asset digest.
 - Published report identifies extension `0.2.2` and the same source commit: 40/40 mocked control checks and zero external API calls.
 
+## Phase 3 — Experimental System-1
+
+- Extension version: `0.2.3`; annotated tag: `jev-v0.2.3-alpha.1`.
+- Source commit: `d52a4a7ea61f1585d29c8770aac2b3b1cde0018a`.
+- [Installable prerelease and seven assets](https://github.com/yuxiaoli/nanobrowser/releases/tag/jev-v0.2.3-alpha.1).
+- [CI run](https://github.com/yuxiaoli/nanobrowser/actions/runs/37803306830): unit tests, type check, lint, 40/40 adapter controls, packaging, ZIP integrity, **16/16 actual packaged-browser checks**, checksum creation, and publication all passed.
+- Downloaded published ZIP: manifest `0.2.3`, MV3 worker present; SHA-256 `09cdde04fd874184dd7afb6f17b4c6a1c0f4edf8c0b5698360131acc8b33e3c4` matches GitHub's asset digest and `SHA256SUMS`.
+- Published offline report identifies the same source commit and extension version: 40/40 mocked control checks and zero external Jev/LLM calls.
+- Published CI browser report records Chrome `154.0.8037.97`, 16/16 checks passed, and the exact published ZIP digest above. [The saved report](../docs/jev-browser-verification.json) is copied from that release asset. Mocked providers and blocked external DNS keep live TypeSafe verification explicitly false.
+- All seven downloaded assets matched GitHub's individual SHA-256 digests; every file listed in `SHA256SUMS` was verified.
+
+### Additional local browser evidence
+
+Before publication, the local phase-3 ZIP (`0.2.3`) also passed 16/16 actual-extension checks in Chrome `154.0.8037.98` with mocked Jev/LLM transports and external DNS blocked. Its SHA-256 was `cdfddf19c14594ebeec76ecf67b774dff9df8f8897a6fab92ac5143765bea096`. The published CI report above is the primary acceptance evidence and tests the independently built release ZIP.
+
 ## Remaining acceptance
 
-The local phase-3 ZIP (`0.2.3`) passed 16/16 actual-extension checks in Chrome `154.0.8037.98` with mocked Jev/LLM transports and external DNS blocked. Its SHA-256 is `cdfddf19c14594ebeec76ecf67b774dff9df8f8897a6fab92ac5143765bea096`; [the saved report](../docs/jev-browser-verification.json) binds the checks to that local artifact. This rerun includes the corrected completion/approval behavior plus routing and experimental selection.
-
-The phase-3 published release record will be appended after CI publication and asset verification. Live TypeSafe connectivity and paired browser task performance are outside the authorized offline implementation scope and remain unmeasured. Offline fixture checks validate supplied mocked responses; they are not task-success measurements.
+All authorized offline implementation, packaging, browser checks, and prerelease publication are complete. Live TypeSafe connectivity and paired browser task performance are outside the authorized offline implementation scope and remain unmeasured. Offline fixture checks validate supplied mocked responses; they are not task-success measurements.

@@ -6,6 +6,8 @@ Fork `nanobrowser/nanobrowser` into `yuxiaoli/nanobrowser`. Preserve `master` fo
 
 The approved execution scope is offline validation and installable prereleases. No paid/live TypeSafe or LLM calls are authorized for this implementation. Live connectivity, browser task success, and online performance comparisons remain pending; this delivery must not claim they passed or that Jev improves performance.
 
+Offline delivery is complete: all three phase prereleases are published, and the final published ZIP passed the actual-browser checks with mocked providers in CI. See [the release acceptance record](RELEASES.md) for tags, source commits, artifact hashes, and evidence; the remaining online acceptance below is still pending.
+
 ## Architecture and interfaces
 
 Actual source lives under `src/background/agent/`. Add a `decision/` module with an injectable `DecisionEngine`, `JevDecisionEngine`, and `NoopDecisionEngine`. Inputs carry task identity, task text, relevant redacted browser state, execution outcomes, and an `AbortSignal`.
